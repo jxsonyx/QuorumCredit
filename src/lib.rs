@@ -12,7 +12,10 @@ use reputation::ReputationNftContractClient;
 
 const DEFAULT_YIELD_BPS: i128 = 200;
 const DEFAULT_SLASH_BPS: i128 = 5000;
-const _: () = assert!(DEFAULT_SLASH_BPS <= 10_000, "DEFAULT_SLASH_BPS must not exceed 10_000");
+const _: () = assert!(
+    DEFAULT_SLASH_BPS <= 10_000,
+    "DEFAULT_SLASH_BPS must not exceed 10_000"
+);
 const DEFAULT_MAX_VOUCHERS: u32 = 100;
 const DEFAULT_MIN_LOAN_AMOUNT: i128 = 100_000;
 const DEFAULT_LOAN_DURATION: u64 = 30 * 24 * 60 * 60;
