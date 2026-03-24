@@ -4,8 +4,6 @@ use soroban_sdk::{contract, contracterror, contractimpl, contracttype, token, Ad
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-/// Yield paid to vouchers on repayment: 200 basis points = 2%.
-const YIELD_BPS: i128 = 200;
 /// Slash penalty on default: 5000 basis points = 50% of voucher stake burned.
 const SLASH_BPS: i128 = 5000;
 /// Maximum number of vouchers per loan to prevent DoS.
@@ -41,7 +39,7 @@ pub enum DataKey {
     Paused,           // bool: true when contract is paused
     LoanDuration,     // u64 configurable loan duration in seconds
     CreditHistory(Address), // borrower → CreditHistory
-}
+    YieldBps,               // i128 yield rate in basis points
 
 // ── Data Types ────────────────────────────────────────────────────────────────
 
@@ -86,19 +84,20 @@ impl QuorumCreditContract {
     ///
     /// `max_loan_to_stake_ratio` is the maximum loan amount as a percentage of stake.
     /// For example, 150 means loan can be at most 150% of total vouched stake.
-    pub fn initialize(env: Env, deployer: Address, admin: Address, token: Address, max_loan_to_stake_ratio: u32) {
-        // Require the deployer's signature — only they can authorise this call.
+    pub fn initialize(env: Env, deployer: Address, admin: Address, token: Address, max_loan_to_stake_ratio: u32, yield_bps: i128) {
         deployer.require_auth();
 
         assert!(
             !env.storage().instance().has(&DataKey::Admin),
             "already initialized"
         );
+        assert!(yield_bps > 0 && yield_bps <= 10_000, "yield_bps must be in range 1..=10000");
 
         env.storage().instance().set(&DataKey::Deployer, &deployer);
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Token, &token);
         env.storage().instance().set(&DataKey::MaxLoanToStakeRatio, &max_loan_to_stake_ratio);
+        env.storage().instance().set(&DataKey::YieldBps, &yield_bps);
     }
 
     /// Stake XLM to vouch for a borrower.
@@ -245,10 +244,16 @@ impl QuorumCreditContract {
             .get(&DataKey::Vouches(borrower.clone()))
             .unwrap_or(Vec::new(&env));
 
+        let yield_bps: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::YieldBps)
+            .expect("not initialized");
+
         // Pre-calculate total payout to ensure contract has enough balance.
         let mut total_payout: i128 = 0;
         for v in vouches.iter() {
-            let yield_amount = v.stake * YIELD_BPS / 10_000;
+            let yield_amount = v.stake * yield_bps / 10_000;
             total_payout += v.stake + yield_amount;
         }
 
@@ -261,9 +266,9 @@ impl QuorumCreditContract {
             "insufficient contract balance for yield distribution"
         );
 
-        // Return stake + 2% yield to each voucher.
+        // Return stake + configured yield to each voucher.
         for v in vouches.iter() {
-            let yield_amount = v.stake * YIELD_BPS / 10_000;
+            let yield_amount = v.stake * yield_bps / 10_000;
             token.transfer(
                 &env.current_contract_address(),
                 &v.voucher,
@@ -592,6 +597,13 @@ impl QuorumCreditContract {
             .unwrap_or(false)
     }
 
+    pub fn get_yield_bps(env: Env) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::YieldBps)
+            .expect("not initialized")
+    }
+
     pub fn get_loan(env: Env, borrower: Address) -> Option<LoanRecord> {
         env.storage().persistent().get(&DataKey::Loan(borrower))
     }
@@ -670,14 +682,9 @@ mod tests {
 
         // deployer == admin for test convenience; the key point is that
         // deployer.require_auth() is satisfied via mock_all_auths().
-        // Set max_loan_to_stake_ratio to 150% (150 * 100 = 15000 basis points)
+        // yield_bps = 200 (2%) matches the original hardcoded default.
         QuorumCreditContractClient::new(env, &contract_id)
-            .initialize(&admin, &admin, &token_id.address(), &150);
-        QuorumCreditContractClient::new(env, &contract_id).initialize(
-            &admin,
-            &admin,
-            &token_id.address(),
-        );
+            .initialize(&admin, &admin, &token_id.address(), &150, &200);
 
         (contract_id, token_id.address(), admin, borrower, voucher)
     }
@@ -769,12 +776,7 @@ mod tests {
         // Request a loan larger than the contract balance to trigger InsufficientFunds.
 
         QuorumCreditContractClient::new(&env, &contract_id)
-            .initialize(&admin, &admin, &token_id.address(), &150);
-        QuorumCreditContractClient::new(&env, &contract_id).initialize(
-            &admin,
-            &admin,
-            &token_id.address(),
-        );
+            .initialize(&admin, &admin, &token_id.address(), &150, &200);
 
         let client = QuorumCreditContractClient::new(&env, &contract_id);
         // Stake 1_000_000 — contract now holds exactly 1_000_000.
@@ -1124,6 +1126,54 @@ mod tests {
         let client = QuorumCreditContractClient::new(&env, &contract_id);
 
         assert_eq!(client.get_admin(), admin);
+    }
+
+    // ── Yield BPS Tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_yield_bps_stored_on_initialize() {
+        let env = Env::default();
+        let (contract_id, _token_addr, _admin, _borrower, _voucher) = setup(&env);
+        let client = QuorumCreditContractClient::new(&env, &contract_id);
+
+        assert_eq!(client.get_yield_bps(), 200);
+    }
+
+    #[test]
+    fn test_repay_yield_matches_configured_bps() {
+        // Test with 500 bps (5%) and 1000 bps (10%) to verify dynamic calculation.
+        for &bps in &[500i128, 1000i128] {
+            let env = Env::default();
+            env.mock_all_auths();
+
+            let admin = Address::generate(&env);
+            let borrower = Address::generate(&env);
+            let voucher = Address::generate(&env);
+
+            let token_id = env.register_stellar_asset_contract_v2(admin.clone());
+            let token_admin = StellarAssetClient::new(&env, &token_id.address());
+            token_admin.mint(&voucher, &10_000_000);
+
+            let contract_id = env.register_contract(None, QuorumCreditContract);
+            token_admin.mint(&contract_id, &50_000_000);
+
+            QuorumCreditContractClient::new(&env, &contract_id)
+                .initialize(&admin, &admin, &token_id.address(), &150, &bps);
+
+            let client = QuorumCreditContractClient::new(&env, &contract_id);
+            let token = TokenClient::new(&env, &token_id.address());
+
+            let stake: i128 = 1_000_000;
+            client.vouch(&voucher, &borrower, &stake);
+            client.request_loan(&borrower, &500_000, &stake);
+            token_admin.mint(&borrower, &500_000);
+            client.repay(&borrower);
+
+            // expected = initial_balance - stake + stake + yield
+            //          = 10_000_000 - 1_000_000 + 1_000_000 + (stake * bps / 10_000)
+            let expected = 10_000_000i128 + stake * bps / 10_000;
+            assert_eq!(token.balance(&voucher), expected, "failed for bps={}", bps);
+        }
     }
 
     // ── Credit Score Tests ────────────────────────────────────────────────────
