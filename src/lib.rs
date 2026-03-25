@@ -702,33 +702,7 @@ impl QuorumCreditContract {
             .get(&DataKey::Vouches(borrower.clone()))
             .unwrap_or(Vec::new(&env));
 
-        // ── EFFECTS (all state mutations before any external call) ────────────
-        loan.defaulted = true;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Loan(borrower.clone()), &loan);
-
-        // Clear vouches before transfers so a reentrant slash finds no vouches.
-        env.storage()
-            .persistent()
-            .remove(&DataKey::Vouches(borrower.clone()));
-
-        // Pre-compute treasury increments and persist them before transfers.
-        let mut total_slash: i128 = 0;
-        for v in vouches.iter() {
-            total_slash += v.stake * cfg.slash_bps / 10_000;
-        }
-        let treasury: i128 = env
-            .storage()
-            .instance()
-            .get(&DataKey::SlashTreasury)
-            .unwrap_or(0);
-        env.storage()
-            .instance()
-            .set(&DataKey::SlashTreasury, &(treasury + total_slash));
-
-        // ── INTERACTIONS (external token transfers last) ──────────────────────
-        let token = Self::token(&env);
+        let mut total_slashed: i128 = 0;
         for v in vouches.iter() {
             let slash_amount = v.stake * cfg.slash_bps / 10_000;
             let returned = v.stake - slash_amount;
@@ -736,6 +710,16 @@ impl QuorumCreditContract {
             if returned > 0 {
                 token.transfer(&env.current_contract_address(), &v.voucher, &returned);
             }
+            // Accumulate slashed amount in treasury.
+            let treasury: i128 = env
+                .storage()
+                .instance()
+                .get(&DataKey::SlashTreasury)
+                .unwrap_or(0);
+            env.storage()
+                .instance()
+                .set(&DataKey::SlashTreasury, &(treasury + slash_amount));
+            total_slashed += slash_amount;
         }
 
         // Burn one reputation point if a reputation NFT contract is configured.
@@ -746,6 +730,16 @@ impl QuorumCreditContract {
         {
             ReputationNftExternalClient::new(&env, &nft_addr).burn(&borrower);
         }
+
+        // Clear vouches after slashing to prevent state pollution.
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Vouches(borrower.clone()));
+
+        env.events().publish(
+            (symbol_short!("loan"), symbol_short!("slashed")),
+            (borrower, loan.amount, total_slashed),
+        );
     }
 
     /// Allows vouchers to claim back their stake if loan has expired without repayment or slash.
@@ -1888,6 +1882,40 @@ mod tests {
 
         assert_eq!(token.balance(&voucher), 9_500_000);
         assert!(client.get_loan(&borrower).unwrap().defaulted);
+    }
+
+    #[test]
+    fn test_slash_emits_event() {
+        use soroban_sdk::{IntoVal, Val};
+
+        let env = Env::default();
+        let (contract_id, _token_addr, admin, borrower, voucher) = setup(&env);
+        let client = QuorumCreditContractClient::new(&env, &contract_id);
+        let admin_signers = single_admin_signers(&env, &admin);
+
+        client.vouch(&voucher, &borrower, &1_000_000);
+        client.request_loan(&borrower, &500_000, &1_000_000);
+        client.slash(&admin_signers, &borrower);
+
+        let topic_loan: Val = symbol_short!("loan").into_val(&env);
+        let topic_slashed: Val = symbol_short!("slashed").into_val(&env);
+
+        let (_, _, data) = env
+            .events()
+            .all()
+            .iter()
+            .find(|(_, topics, _)| {
+                topics.len() == 2
+                    && topics.get_unchecked(0).get_payload() == topic_loan.get_payload()
+                    && topics.get_unchecked(1).get_payload() == topic_slashed.get_payload()
+            })
+            .expect("loan_slashed event not emitted");
+
+        let (event_borrower, event_loan_amount, event_slashed): (Address, i128, i128) =
+            data.into_val(&env);
+        assert_eq!(event_borrower, borrower);
+        assert_eq!(event_loan_amount, 500_000);
+        assert_eq!(event_slashed, 500_000); // 50% of 1_000_000 stake
     }
 
     #[test]
