@@ -128,6 +128,23 @@ pub fn require_valid_address(env: &Env, addr: &Address) -> Result<(), ContractEr
     }
 }
 
+/// Validates that an address implements the SEP-41 token interface by attempting
+/// to call `balance()` on it. A plain account address will cause a host trap,
+/// which we catch via `try_invoke` semantics using the token client's try_ variant.
+pub fn require_valid_token(env: &Env, addr: &Address) -> Result<(), ContractError> {
+    require_valid_address(env, addr)?;
+    // Attempt to call balance() on the address. If it's not a token contract,
+    // the invocation will fail and we return InvalidToken.
+    let client = token::Client::new(env, addr);
+    // Use a dummy address (the contract itself) — we only care whether the call
+    // succeeds, not the returned value.
+    let probe = env.current_contract_address();
+    if client.try_balance(&probe).is_err() {
+        return Err(ContractError::InvalidToken);
+    }
+    Ok(())
+}
+
 pub fn validate_admin_config(
     env: &Env,
     admins: &Vec<Address>,

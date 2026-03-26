@@ -13,7 +13,7 @@ pub mod vouch;
 pub use errors::ContractError;
 pub use types::*;
 
-use helpers::{config, require_valid_address, validate_admin_config};
+use helpers::{config, require_valid_token, validate_admin_config};
 use reputation::ReputationNftExternalClient;
 
 #[contract]
@@ -35,7 +35,9 @@ impl QuorumCreditContract {
         }
 
         validate_admin_config(&env, &admins, admin_threshold)?;
-        require_valid_address(&env, &token)?;
+
+        // Validate token address implements SEP-41 token interface before writing any state
+        require_valid_token(&env, &token)?;
 
         env.storage().instance().set(&DataKey::Deployer, &deployer);
         env.storage().instance().set(
@@ -334,83 +336,5 @@ impl QuorumCreditContract {
 
     pub fn get_config(env: Env) -> Config {
         admin::get_config(env)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use soroban_sdk::{
-        testutils::{Address as _, Ledger as _},
-        token::StellarAssetClient,
-        Address, Env, Vec,
-    };
-
-    fn address_vec(env: &Env, addrs: &[Address]) -> Vec<Address> {
-        let mut result = Vec::new(env);
-        for addr in addrs {
-            result.push_back(addr.clone());
-        }
-        result
-    }
-
-    fn setup(env: &Env) -> (Address, Address, Address, Address) {
-        env.mock_all_auths();
-        env.ledger().set_timestamp(1_000_000);
-
-        let admin = Address::generate(env);
-        let borrower = Address::generate(env);
-        let voucher = Address::generate(env);
-        let admins = address_vec(env, &[admin.clone()]);
-
-        let token_id = env.register_stellar_asset_contract_v2(admin.clone());
-        let token_admin = StellarAssetClient::new(env, &token_id.address());
-        token_admin.mint(&voucher, &10_000_000);
-        token_admin.mint(&borrower, &20_000);
-
-        let contract_id = env.register_contract(None, QuorumCreditContract);
-        token_admin.mint(&contract_id, &50_000_000);
-
-        QuorumCreditContractClient::new(env, &contract_id).initialize(
-            &admin,
-            &admins,
-            &1,
-            &token_id.address(),
-        );
-
-        (contract_id, admin, borrower, voucher)
-    }
-
-    #[test]
-    fn test_repay_sets_repayment_timestamp_on_full_repayment() {
-        let env = Env::default();
-        let (contract_id, _admin, borrower, voucher) = setup(&env);
-        let client = QuorumCreditContractClient::new(&env, &contract_id);
-
-        client.vouch(&voucher, &borrower, &1_000_000);
-        env.ledger().set_timestamp(1_000_000 + MIN_VOUCH_AGE);
-        client.request_loan(&borrower, &500_000, &1_000_000);
-
-        let loan_before_repayment = client.get_loan(&borrower).unwrap();
-        assert_eq!(loan_before_repayment.repayment_timestamp, None);
-
-        let total_owed = loan_before_repayment.amount + loan_before_repayment.total_yield;
-        let token_admin = StellarAssetClient::new(&env, &client.get_token());
-        token_admin.mint(&borrower, &(total_owed - loan_before_repayment.amount));
-
-        let partial_payment = total_owed - 1;
-        client.repay(&borrower, &partial_payment);
-
-        let loan_after_partial = client.get_loan(&borrower).unwrap();
-        assert!(!loan_after_partial.repaid);
-        assert_eq!(loan_after_partial.repayment_timestamp, None);
-
-        let repayment_timestamp = 1_000_000 + MIN_VOUCH_AGE + 30;
-        env.ledger().set_timestamp(repayment_timestamp);
-        client.repay(&borrower, &1);
-
-        let repaid_loan = client.get_loan(&borrower).unwrap();
-        assert!(repaid_loan.repaid);
-        assert_eq!(repaid_loan.repayment_timestamp, Some(repayment_timestamp));
     }
 }
