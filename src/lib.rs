@@ -22,6 +22,10 @@ mod loan_purpose_test;
 mod multi_asset_test;
 #[cfg(test)]
 mod referral_test;
+#[cfg(test)]
+mod security_fixes_test;
+#[cfg(test)]
+mod bug_condition_test;
 
 pub use errors::ContractError;
 pub use types::*;
@@ -1421,6 +1425,38 @@ impl QuorumCreditContract {
         approve: bool,
     ) -> Result<(), ContractError> {
         governance::vote_slash(env, voucher, borrower, approve)
+    }
+
+    /// Issue 109: Propose a slash action with a confirmation window (timelock delay).
+    pub fn propose_slash(
+        env: Env,
+        proposer: Address,
+        borrower: Address,
+        delay_secs: u64,
+    ) -> Result<u64, ContractError> {
+        governance::propose_slash(env, proposer, borrower, delay_secs)
+    }
+
+    /// Issue 109: Execute a previously proposed slash after the delay has passed.
+    pub fn execute_slash_proposal(
+        env: Env,
+        proposal_id: u64,
+    ) -> Result<(), ContractError> {
+        governance::execute_slash_proposal(env, proposal_id)
+    }
+
+    /// Issue 109: Cancel a pending slash proposal (only proposer can cancel).
+    pub fn cancel_slash_proposal(
+        env: Env,
+        caller: Address,
+        proposal_id: u64,
+    ) -> Result<(), ContractError> {
+        governance::cancel_slash_proposal(env, caller, proposal_id)
+    }
+
+    /// Issue 109: Get a timelock proposal details.
+    pub fn get_timelock_proposal(env: Env, proposal_id: u64) -> Option<TimelockProposal> {
+        governance::get_timelock_proposal(env, proposal_id)
     }
 
     // ── Reputation NFT Tests ──────────────────────────────────────────────────
