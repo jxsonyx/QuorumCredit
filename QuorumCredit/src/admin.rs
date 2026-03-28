@@ -1,4 +1,4 @@
-use crate::helpers::{config, require_admin_approval, validate_admin_config};
+use crate::helpers::{config, extend_ttl, require_admin_approval, validate_admin_config};
 use crate::types::{Config, DataKey};
 use soroban_sdk::{symbol_short, Address, BytesN, Env, Vec};
 
@@ -113,7 +113,8 @@ pub fn whitelist_voucher(env: Env, admin_signers: Vec<Address>, voucher: Address
     require_admin_approval(&env, &admin_signers);
     env.storage()
         .persistent()
-        .set(&DataKey::VoucherWhitelist(voucher), &true);
+        .set(&DataKey::VoucherWhitelist(voucher.clone()), &true);
+    extend_ttl(&env, &DataKey::VoucherWhitelist(voucher));
 }
 
 pub fn set_fee_treasury(env: Env, admin_signers: Vec<Address>, treasury: Address) {
@@ -153,7 +154,8 @@ pub fn blacklist(env: Env, admin_signers: Vec<Address>, borrower: Address) {
     require_admin_approval(&env, &admin_signers);
     env.storage()
         .persistent()
-        .set(&DataKey::Blacklisted(borrower), &true);
+        .set(&DataKey::Blacklisted(borrower.clone()), &true);
+    extend_ttl(&env, &DataKey::Blacklisted(borrower));
 }
 
 pub fn set_config(env: Env, admin_signers: Vec<Address>, config: Config) {

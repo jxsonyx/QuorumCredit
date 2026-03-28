@@ -83,6 +83,7 @@ fn do_vouch(
     env.storage()
         .persistent()
         .set(&DataKey::VoucherHistory(voucher.clone()), &history);
+    extend_ttl(env, &DataKey::VoucherHistory(voucher.clone()));
 
     vouches.push_back(VouchRecord {
         voucher: voucher.clone(),
@@ -93,12 +94,14 @@ fn do_vouch(
     env.storage()
         .persistent()
         .set(&DataKey::Vouches(borrower.clone()), &vouches);
+    extend_ttl(env, &DataKey::Vouches(borrower.clone()));
 
     // Record the timestamp of this vouch for rate limiting.
     env.storage().persistent().set(
         &DataKey::LastVouchTimestamp(voucher.clone()),
         &env.ledger().timestamp(),
     );
+    extend_ttl(env, &DataKey::LastVouchTimestamp(voucher.clone()));
 
     env.events().publish(
         (symbol_short!("vouch"), symbol_short!("added")),
@@ -165,7 +168,8 @@ pub fn increase_stake(
 
     env.storage()
         .persistent()
-        .set(&DataKey::Vouches(borrower), &vouches);
+        .set(&DataKey::Vouches(borrower.clone()), &vouches);
+    extend_ttl(&env, &DataKey::Vouches(borrower));
 
     Ok(())
 }
@@ -306,6 +310,7 @@ pub fn transfer_vouch(
     env.storage()
         .persistent()
         .set(&DataKey::Vouches(borrower.clone()), &vouches);
+    extend_ttl(&env, &DataKey::Vouches(borrower.clone()));
 
     // Update voucher histories
     // 1. Remove borrower from 'from' history
@@ -319,6 +324,7 @@ pub fn transfer_vouch(
         env.storage()
             .persistent()
             .set(&DataKey::VoucherHistory(from.clone()), &from_history);
+        extend_ttl(&env, &DataKey::VoucherHistory(from.clone()));
     }
 
     // 2. Add borrower to 'to' history if not already there
@@ -332,6 +338,7 @@ pub fn transfer_vouch(
         env.storage()
             .persistent()
             .set(&DataKey::VoucherHistory(to.clone()), &to_history);
+        extend_ttl(&env, &DataKey::VoucherHistory(to.clone()));
     }
 
     env.events().publish(

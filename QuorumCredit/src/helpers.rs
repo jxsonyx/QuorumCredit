@@ -2,6 +2,17 @@ use crate::errors::ContractError;
 use crate::types::{Config, DataKey, LoanRecord};
 use soroban_sdk::{token, Address, Env, String, Vec};
 
+/// Ledgers to live for persistent storage entries (~1 year at ~5s/ledger).
+const PERSISTENT_TTL_LEDGERS: u32 = 6_307_200;
+
+/// Extend the TTL of a persistent storage entry after every write.
+/// Call this immediately after `env.storage().persistent().set(key, ...)`.
+pub fn extend_ttl(env: &Env, key: &DataKey) {
+    env.storage()
+        .persistent()
+        .extend_ttl(key, PERSISTENT_TTL_LEDGERS, PERSISTENT_TTL_LEDGERS);
+}
+
 /// Returns true if the address is the all-zeros account or contract address.
 pub fn is_zero_address(env: &Env, addr: &Address) -> bool {
     // Stellar zero account: all-zero 32-byte ed25519 key
@@ -222,4 +233,35 @@ pub fn validate_admin_config(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod ttl_tests {
+    use super::*;
+    use crate::{QuorumCreditContract, QuorumCreditContractClient};
+    use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
+
+    /// Verify extend_ttl does not panic when called on an existing persistent key.
+    #[test]
+    fn test_extend_ttl_does_not_panic() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, QuorumCreditContract);
+        let client = QuorumCreditContractClient::new(&env, &contract_id);
+
+        let deployer = Address::generate(&env);
+        let admin = Address::generate(&env);
+        let admins = Vec::from_array(&env, [admin.clone()]);
+        let token = Address::generate(&env);
+
+        client.initialize(&deployer, &admins, &1, &token);
+
+        // Write a persistent key then call extend_ttl — must not panic.
+        env.as_contract(&contract_id, || {
+            let key = DataKey::LoanCount(deployer.clone());
+            env.storage().persistent().set(&key, &42u32);
+            extend_ttl(&env, &key);
+        });
+    }
 }

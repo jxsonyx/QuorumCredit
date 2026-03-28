@@ -28,6 +28,7 @@ pub fn register_referral(
     env.storage()
         .persistent()
         .set(&DataKey::ReferredBy(borrower.clone()), &referrer);
+    extend_ttl(&env, &DataKey::ReferredBy(borrower.clone()));
 
     env.events().publish(
         (symbol_short!("referral"), symbol_short!("set")),
@@ -161,12 +162,15 @@ pub fn request_loan(
             token_address: token_addr.clone(),
         },
     );
+    extend_ttl(&env, &DataKey::Loan(loan_id));
     env.storage()
         .persistent()
         .set(&DataKey::ActiveLoan(borrower.clone()), &loan_id);
+    extend_ttl(&env, &DataKey::ActiveLoan(borrower.clone()));
     env.storage()
         .persistent()
         .set(&DataKey::LatestLoan(borrower.clone()), &loan_id);
+    extend_ttl(&env, &DataKey::LatestLoan(borrower.clone()));
 
     let count: u32 = env
         .storage()
@@ -176,6 +180,7 @@ pub fn request_loan(
     env.storage()
         .persistent()
         .set(&DataKey::LoanCount(borrower.clone()), &(count + 1));
+    extend_ttl(&env, &DataKey::LoanCount(borrower.clone()));
 
     token_client.transfer(&env.current_contract_address(), &borrower, &amount);
 
@@ -318,6 +323,7 @@ pub fn repay(env: Env, borrower: Address, payment: i128) -> Result<(), ContractE
         env.storage()
             .persistent()
             .set(&DataKey::RepaymentCount(borrower.clone()), &(count + 1));
+        extend_ttl(&env, &DataKey::RepaymentCount(borrower.clone()));
 
         if let Some(nft_addr) = env
             .storage()
@@ -343,6 +349,7 @@ pub fn repay(env: Env, borrower: Address, payment: i128) -> Result<(), ContractE
     env.storage()
         .persistent()
         .set(&DataKey::Loan(loan.id), &loan);
+    extend_ttl(&env, &DataKey::Loan(loan.id));
 
     Ok(())
 }
