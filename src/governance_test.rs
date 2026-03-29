@@ -238,4 +238,16 @@ mod governance_tests {
             crate::LoanStatus::Defaulted
         );
     }
+
+    /// Issue #373: propose_slash rejects borrower with no active loan
+    #[test]
+    fn test_propose_slash_rejects_no_active_loan() {
+        let s = setup();
+        let borrower = Address::generate(&s.env);
+        let proposer = Address::generate(&s.env);
+
+        // Try to propose slash for borrower with no active loan
+        let result = s.client.try_propose_slash(&proposer, &borrower, &86_400);
+        assert_eq!(result, Err(Ok(ContractError::NoActiveLoan)));
+    }
 }

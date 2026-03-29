@@ -207,6 +207,9 @@ pub fn propose_slash(
     proposer.require_auth();
     require_not_paused(&env)?;
 
+    // Verify borrower has an active loan
+    let _loan = get_active_loan_record(&env, &borrower)?;
+
     // Get or initialize timelock counter
     let proposal_id: u64 = env
         .storage()
