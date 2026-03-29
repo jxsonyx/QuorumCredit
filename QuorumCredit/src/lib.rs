@@ -36,6 +36,8 @@ mod duplicate_loan_test;
 #[cfg(test)]
 mod double_repay_test;
 #[cfg(test)]
+mod config_bps_test;
+#[cfg(test)]
 mod simple_double_repay_test;
 
 pub use errors::ContractError;
