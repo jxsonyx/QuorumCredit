@@ -81,8 +81,9 @@ pub fn vote_slash(
         .get(&DataKey::SlashVoteQuorum)
         .unwrap_or(DEFAULT_SLASH_VOTE_QUORUM_BPS);
 
-    let quorum_reached =
-        total_stake > 0 && vote.approve_stake * 10_000 / total_stake >= quorum_bps as i128;
+    // Use ceiling division to prevent rounding down: (approve_stake * 10_000 + total_stake - 1) / total_stake
+    let quorum_reached = total_stake > 0
+        && (vote.approve_stake * 10_000 + total_stake - 1) / total_stake >= quorum_bps as i128;
 
     if quorum_reached {
         vote.executed = true;
@@ -216,6 +217,9 @@ pub fn propose_slash(
 ) -> Result<u64, ContractError> {
     proposer.require_auth();
     require_not_paused(&env)?;
+
+    // Verify borrower has an active loan
+    let _loan = get_active_loan_record(&env, &borrower)?;
 
     // Get or initialize timelock counter
     let proposal_id: u64 = env

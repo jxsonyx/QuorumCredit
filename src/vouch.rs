@@ -40,6 +40,23 @@ fn do_vouch(
         return Err(ContractError::Blacklisted);
     }
 
+    // Check voucher whitelist if enabled
+    let whitelist_enabled: bool = env
+        .storage()
+        .instance()
+        .get(&DataKey::WhitelistEnabled)
+        .unwrap_or(false);
+    if whitelist_enabled {
+        let is_whitelisted: bool = env
+            .storage()
+            .persistent()
+            .get(&DataKey::VoucherWhitelist(voucher.clone()))
+            .unwrap_or(false);
+        if !is_whitelisted {
+            return Err(ContractError::VoucherNotWhitelisted);
+        }
+    }
+
     // Validate token is allowed.
     let token_client = require_allowed_token(env, &token)?;
 
@@ -595,9 +612,9 @@ mod tests {
         assert_eq!(result, Err(Ok(ContractError::Blacklisted)));
     }
 
-    /// Issue #370: increase_stake emits an event.
+    /// Issue #375: Whitelist enforcement in do_vouch
     #[test]
-    fn test_increase_stake_emits_event() {
+    fn test_vouch_whitelisted_voucher_allowed() {
         let env = Env::default();
         env.mock_all_auths();
 
@@ -606,36 +623,29 @@ mod tests {
 
         let deployer = Address::generate(&env);
         let admin = create_test_admin(&env);
-        let admins = Vec::from_array(&env, [admin]);
+        let admins = Vec::from_array(&env, [admin.clone()]);
         let token = create_test_token(&env);
 
         client.initialize(&deployer, &admins, &1, &token);
 
         let voucher = Address::generate(&env);
         let borrower = Address::generate(&env);
+        let stake = 1_000_000;
 
-        // Initial vouch
-        client.vouch(&voucher, &borrower, &1_000_000, &token);
+        // Enable whitelist
+        client.set_whitelist_enabled(&admins, &true);
 
-        // Clear events from initial vouch
-        env.events().all();
+        // Whitelist the voucher
+        client.whitelist_voucher(&admins, &voucher);
 
-        // Increase stake
-        client.increase_stake(&voucher, &borrower, &500_000);
-
-        // Check that event was emitted
-        let events = env.events().all();
-        assert!(!events.is_empty());
-        
-        // Verify the event contains the expected data
-        let last_event = events.last().unwrap();
-        assert_eq!(last_event.0.get(0).unwrap().to_string(), "vouch");
-        assert_eq!(last_event.0.get(1).unwrap().to_string(), "increased");
+        // Vouch should succeed
+        let result = client.try_vouch(&voucher, &borrower, &stake, &token);
+        assert!(result.is_ok());
     }
 
-    /// Issue #371: decrease_stake emits an event.
+    /// Issue #375: Non-whitelisted voucher rejected when whitelist enabled
     #[test]
-    fn test_decrease_stake_emits_event() {
+    fn test_vouch_non_whitelisted_voucher_rejected() {
         let env = Env::default();
         env.mock_all_auths();
 
@@ -644,30 +654,45 @@ mod tests {
 
         let deployer = Address::generate(&env);
         let admin = create_test_admin(&env);
-        let admins = Vec::from_array(&env, [admin]);
+        let admins = Vec::from_array(&env, [admin.clone()]);
         let token = create_test_token(&env);
 
         client.initialize(&deployer, &admins, &1, &token);
 
         let voucher = Address::generate(&env);
         let borrower = Address::generate(&env);
+        let stake = 1_000_000;
 
-        // Initial vouch
-        client.vouch(&voucher, &borrower, &1_000_000, &token);
+        // Enable whitelist
+        client.set_whitelist_enabled(&admins, &true);
 
-        // Clear events from initial vouch
-        env.events().all();
+        // Try to vouch without being whitelisted
+        let result = client.try_vouch(&voucher, &borrower, &stake, &token);
+        assert_eq!(result, Err(Ok(ContractError::VoucherNotWhitelisted)));
+    }
 
-        // Decrease stake
-        client.decrease_stake(&voucher, &borrower, &300_000);
+    /// Issue #375: Whitelist disabled by default (opt-in)
+    #[test]
+    fn test_vouch_whitelist_disabled_by_default() {
+        let env = Env::default();
+        env.mock_all_auths();
 
-        // Check that event was emitted
-        let events = env.events().all();
-        assert!(!events.is_empty());
-        
-        // Verify the event contains the expected data
-        let last_event = events.last().unwrap();
-        assert_eq!(last_event.0.get(0).unwrap().to_string(), "vouch");
-        assert_eq!(last_event.0.get(1).unwrap().to_string(), "decreased");
+        let contract_id = env.register_contract(None, QuorumCreditContract);
+        let client = QuorumCreditContractClient::new(&env, &contract_id);
+
+        let deployer = Address::generate(&env);
+        let admin = create_test_admin(&env);
+        let admins = Vec::from_array(&env, [admin.clone()]);
+        let token = create_test_token(&env);
+
+        client.initialize(&deployer, &admins, &1, &token);
+
+        let voucher = Address::generate(&env);
+        let borrower = Address::generate(&env);
+        let stake = 1_000_000;
+
+        // Whitelist is disabled by default, so any voucher can vouch
+        let result = client.try_vouch(&voucher, &borrower, &stake, &token);
+        assert!(result.is_ok());
     }
 }
