@@ -34,6 +34,8 @@ mod bug_condition_test;
 #[cfg(test)]
 mod double_slash_panic_test;
 #[cfg(test)]
+mod slash_after_repay_test;
+#[cfg(test)]
 mod duplicate_loan_test;
 #[cfg(test)]
 mod full_lifecycle_test;

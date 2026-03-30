@@ -20,6 +20,14 @@ pub fn vote_slash(
     voucher.require_auth();
     require_not_paused(&env)?;
 
+    // If the borrower's latest loan is already repaid, panic with a clear message.
+    if let Some(latest) = get_latest_loan_record(&env, &borrower) {
+        assert!(
+            latest.status != LoanStatus::Repaid,
+            "loan already repaid"
+        );
+    }
+
     // Borrower must have an active loan to be slashable.
     let loan = get_active_loan_record(&env, &borrower)?;
     if loan.status != crate::types::LoanStatus::Active {
