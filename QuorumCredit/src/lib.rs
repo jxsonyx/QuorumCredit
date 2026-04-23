@@ -362,6 +362,10 @@ impl QuorumCreditContract {
         governance::get_slash_vote_quorum(env)
     }
 
+    pub fn execute_slash_vote(env: Env, borrower: Address) -> Result<(), ContractError> {
+        governance::execute_slash_vote(env, borrower)
+    }
+
     pub fn propose_slash(
         env: Env,
         proposer: Address,

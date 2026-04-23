@@ -965,4 +965,20 @@ impl QuorumCreditContract {
     pub fn get_slash_vote(env: Env, borrower: Address) -> Option<SlashVoteRecord> {
         governance::get_slash_vote(env, borrower)
     }
+
+    /// Execute a slash vote if quorum has been met.
+    ///
+    /// # Arguments
+    /// * `borrower` - Address of the borrower whose slash vote to execute
+    ///
+    /// # Returns
+    /// * `Result<(), ContractError>` - Success or error
+    ///
+    /// # Errors
+    /// * `ContractError::SlashVoteNotFound` - If no slash vote exists for the borrower
+    /// * `ContractError::SlashAlreadyExecuted` - If the slash has already been executed
+    /// * `ContractError::QuorumNotMet` - If the approval stake does not meet the quorum threshold
+    pub fn execute_slash_vote(env: Env, borrower: Address) -> Result<(), ContractError> {
+        governance::execute_slash_vote(env, borrower)
+    }
 }

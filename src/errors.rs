@@ -41,6 +41,7 @@ pub enum ContractError {
     AlreadyVoted = 31,
     SlashVoteNotFound = 32,
     SlashAlreadyExecuted = 33,
+    QuorumNotMet = 34,
     MaxVouchersPerBorrowerExceeded = 35,
     /// Voucher has insufficient balance to stake the requested amount.
     InsufficientVoucherBalance = 36,
