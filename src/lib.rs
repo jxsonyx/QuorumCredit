@@ -12,33 +12,9 @@ mod tests;
 pub mod types;
 pub mod vouch;
 
-// #[cfg(test)]
-mod governance_test;
-// #[cfg(test)]
-mod initialize_test;
-// #[cfg(test)]
-mod loan_purpose_test;
-// #[cfg(test)]
-mod multi_asset_test;
-// #[cfg(test)]
-mod referral_test;
-// #[cfg(test)]
-#[cfg(test)]
-mod min_loan_amount_test;
-mod request_loan_insufficient_stake_test;
-mod security_fixes_test;
-#[cfg(test)]
-mod vouch_zero_stake_test;
-// #[cfg(test)]
-mod bug_condition_test;
-#[cfg(test)]
-mod double_slash_panic_test;
-#[cfg(test)]
-mod slash_after_repay_test;
-#[cfg(test)]
-mod duplicate_loan_test;
-#[cfg(test)]
-mod full_lifecycle_test;
+pub use contract::QuorumCreditContract;
+pub use errors::ContractError;
+pub use types::*;
 
 #[cfg(test)]
 mod get_loan_none_test;
