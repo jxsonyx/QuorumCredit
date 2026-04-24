@@ -3,6 +3,7 @@ use crate::{
     errors::ContractError,
     governance,
     helpers::{self, require_valid_token, validate_admin_config},
+    insurance,
     loan,
     reputation::ReputationNftExternalClient,
     types::*,
@@ -1042,5 +1043,53 @@ impl QuorumCreditContract {
     /// * `ContractError::QuorumNotMet` - If the approval stake does not meet the quorum threshold
     pub fn execute_slash_vote(env: Env, borrower: Address) -> Result<(), ContractError> {
         governance::execute_slash_vote(env, borrower)
+    }
+
+    /// Emit `repayment_reminder` events for all active loans whose deadline is within 7 days.
+    ///
+    /// Off-chain systems can call this to trigger reminder events for borrowers approaching
+    /// their repayment deadline.
+    pub fn emit_repayment_reminders(env: Env) {
+        loan::emit_repayment_reminders(env)
+    }
+
+    /// Mint a reputation NFT for a borrower who has repaid at least one loan.
+    ///
+    /// # Errors
+    /// * `NoActiveLoan` — borrower has no successful repayments or no NFT contract configured
+    pub fn mint_reputation_nft(env: Env, borrower: Address) -> Result<(), ContractError> {
+        loan::mint_reputation_nft(env, borrower)
+    }
+
+    /// Calculate the dynamic yield in basis points for a borrower.
+    ///
+    /// Formula: `base_yield_bps + (credit_score / 100) - (default_count * 50)`, floored at 0.
+    pub fn calculate_dynamic_yield(env: Env, borrower: Address) -> i128 {
+        loan::calculate_dynamic_yield(&env, &borrower)
+    }
+
+    // ── Insurance Pool ────────────────────────────────────────────────────────
+
+    /// Contribute tokens to the insurance pool.
+    pub fn contribute_to_insurance(
+        env: Env,
+        contributor: Address,
+        amount: i128,
+    ) -> Result<(), ContractError> {
+        insurance::contribute_to_insurance(env, contributor, amount)
+    }
+
+    /// Claim an insurance payout for a defaulted loan.
+    pub fn claim_insurance(
+        env: Env,
+        voucher: Address,
+        loan_id: u64,
+    ) -> Result<(), ContractError> {
+        insurance::claim_insurance(env, voucher, loan_id)
+    }
+
+    /// Get the current insurance pool balance in stroops.
+    pub fn get_insurance_pool_balance(env: Env) -> i128 {
+        insurance::get_insurance_pool_balance(env)
     }
 }
