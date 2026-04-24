@@ -40,6 +40,8 @@ mod vouch_active_loan_test;
 #[cfg(test)]
 mod request_loan_stake_threshold_test;
 #[cfg(test)]
+mod decrease_stake_full_withdrawal_test;
+#[cfg(test)]
 mod repay_protocol_fee_test;
 #[cfg(test)]
 mod is_eligible_token_filter_test;
